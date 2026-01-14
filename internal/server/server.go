@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 	"werewolf-backend/internal/config"
+	"werewolf-backend/internal/database"
 	"werewolf-backend/internal/router"
 
 	"github.com/gofiber/fiber/v2"
@@ -22,12 +23,14 @@ import (
 type Server struct {
 	app *fiber.App
 	cfg *config.Config
+	db  *database.Database
 }
 
-func New(cfg *config.Config) *Server {
+func New(cfg *config.Config, db *database.Database) *Server {
 	return &Server{
 		app: fiber.New(),
 		cfg: cfg,
+		db:  db,
 	}
 }
 
@@ -86,7 +89,7 @@ func (s *Server) NewServer(cfg *config.Config) *Server {
 
 func (s *Server) Run() error {
 	// Setup routes
-	router.Setup(s.app, s.cfg)
+	router.Setup(s.app, s.cfg, s.db)
 
 	// Handle graceful shutdown
 	return s.runWithGracefulShutdown()
