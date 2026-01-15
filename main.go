@@ -20,10 +20,14 @@ func main() {
 	}
 	defer db.Close()
 
-	server := server.New(cfg, db)
+	// Auto migrate
+	if err := db.AutoMigrate(); err != nil {
+		log.Fatal("Failed to migrate:", err)
+	}
+
+	server := server.NewServer(cfg, db)
 	if err := server.Run(); err != nil {
 		panic(err)
 	}
-	
 
 }

@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"werewolf-backend/internal"
 	"werewolf-backend/internal/config"
 	"werewolf-backend/internal/database"
-	"werewolf-backend/internal/router"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -26,15 +26,7 @@ type Server struct {
 	db  *database.Database
 }
 
-func New(cfg *config.Config, db *database.Database) *Server {
-	return &Server{
-		app: fiber.New(),
-		cfg: cfg,
-		db:  db,
-	}
-}
-
-func (s *Server) NewServer(cfg *config.Config) *Server {
+func NewServer(cfg *config.Config, db *database.Database) *Server {
 	app := fiber.New(fiber.Config{
 		AppName:               "Werewolf-Game",
 		ServerHeader:          "Werewolf-Game",
@@ -83,13 +75,14 @@ func (s *Server) NewServer(cfg *config.Config) *Server {
 	return &Server{
 		app: app,
 		cfg: cfg,
+		db:  db,
 	}
 
 }
 
 func (s *Server) Run() error {
 	// Setup routes
-	router.Setup(s.app, s.cfg, s.db)
+	internal.Setup(s.app, s.db)
 
 	// Handle graceful shutdown
 	return s.runWithGracefulShutdown()
@@ -117,7 +110,7 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 
 func getAllowedOrigins(cfg *config.Config) string {
 	if cfg.IsDevelopment() {
-		return "http://localhost:3000"
+		return "http://localhost:5173,http://localhost:8080"
 	}
 	// Production - เพิ่ม domain จริง
 	return "https://your-frontend-domain.com,https://your-app.vercel.app"
