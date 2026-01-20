@@ -9,4 +9,5 @@ import (
 func AuthRoutes(v1 fiber.Router, h *handler.Handler) {
 	auth := v1.Group("/auths")
 	auth.Post("/register", h.Register)
+	auth.Post("/login", h.Login)
 }

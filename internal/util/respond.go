@@ -21,6 +21,16 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+type LocalizedError struct {
+	Code    int
+	Err     string
+	Message string
+}
+
+func (e *LocalizedError) Error() string {
+	return e.Message
+}
+
 func HandlerResponse(ctx *fiber.Ctx, statusCode int, data interface{}, msg string) error {
 	response := Response{
 		Status:  statusCode,

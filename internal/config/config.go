@@ -8,7 +8,7 @@ import (
 
 type Config struct {
 	Server *ServerConfig
-	DB *DatabaseConfig
+	DB     *DatabaseConfig
 }
 
 func Load() (*Config, error) {
@@ -29,7 +29,7 @@ func Load() (*Config, error) {
 	// สร้าง config object
 	cfg := &Config{
 		Server: LoadServerConfig(),
-		DB: LoadDatabaseConfig(),
+		DB:     LoadDatabaseConfig(),
 	}
 
 	return cfg, nil
