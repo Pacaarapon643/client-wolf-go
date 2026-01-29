@@ -2,8 +2,8 @@ package handler
 
 import (
 	"time"
-	"werewolf-backend/internal/config"
-	"werewolf-backend/internal/database"
+	"werewolf-backend/internal/infrastructure/config"
+	"werewolf-backend/internal/infrastructure/database"
 
 	"github.com/gofiber/fiber/v2"
 )

@@ -8,9 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"werewolf-backend/internal/config"
-	"werewolf-backend/internal/database"
-	"werewolf-backend/internal/router"
+	"werewolf-backend/internal"
+	"werewolf-backend/internal/adapter/http/middleware"
+	"werewolf-backend/internal/infrastructure/config"
+	"werewolf-backend/internal/infrastructure/database"
+	"werewolf-backend/internal/pkg/util"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -21,20 +23,14 @@ import (
 )
 
 type Server struct {
-	app *fiber.App
-	cfg *config.Config
-	db  *database.Database
+	app           *fiber.App
+	cfg           *config.Config
+	db            *database.Database
+	jwtService    *util.JWTService
+	jwtMiddleware *middleware.JWTMiddleware
 }
 
-func New(cfg *config.Config, db *database.Database) *Server {
-	return &Server{
-		app: fiber.New(),
-		cfg: cfg,
-		db:  db,
-	}
-}
-
-func (s *Server) NewServer(cfg *config.Config) *Server {
+func NewServer(cfg *config.Config, db *database.Database) *Server {
 	app := fiber.New(fiber.Config{
 		AppName:               "Werewolf-Game",
 		ServerHeader:          "Werewolf-Game",
@@ -80,16 +76,28 @@ func (s *Server) NewServer(cfg *config.Config) *Server {
 		MaxAge:           3600,
 	}))
 
+	// สร้าง JWT Service
+	jwtService, err := util.NewJWTService(cfg.JWT)
+	if err != nil {
+		log.Fatal("Failed to initialize JWT service:", err)
+	}
+
+	// สร้าง JWT Middleware
+	jwtMiddleware := middleware.NewJWTMiddleware(jwtService)
+
 	return &Server{
-		app: app,
-		cfg: cfg,
+		app:           app,
+		cfg:           cfg,
+		db:            db,
+		jwtService:    jwtService,
+		jwtMiddleware: jwtMiddleware,
 	}
 
 }
 
 func (s *Server) Run() error {
 	// Setup routes
-	router.Setup(s.app, s.cfg, s.db)
+	internal.Setup(s.app, s.db, s.jwtMiddleware, s.jwtService)
 
 	// Handle graceful shutdown
 	return s.runWithGracefulShutdown()
@@ -117,7 +125,7 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 
 func getAllowedOrigins(cfg *config.Config) string {
 	if cfg.IsDevelopment() {
-		return "http://localhost:3000"
+		return "http://localhost:5173,http://localhost:8080"
 	}
 	// Production - เพิ่ม domain จริง
 	return "https://your-frontend-domain.com,https://your-app.vercel.app"

@@ -1,8 +1,10 @@
 package database
 
 import (
+	"log"
 	"time"
-	"werewolf-backend/internal/config"
+	"werewolf-backend/internal/infrastructure/config"
+	"werewolf-backend/internal/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -14,7 +16,7 @@ func NewPostgres(cfg *config.DatabaseConfig) (*Database, error) {
 	var err error
 
 	gormCfg := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Error),
+		Logger: logger.Default.LogMode(logger.Info),
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -41,4 +43,17 @@ func NewPostgres(cfg *config.DatabaseConfig) (*Database, error) {
 
 	return New(db), nil
 
+}
+
+func (d *Database) AutoMigrate() error {
+	err := d.DB.AutoMigrate(
+		&models.User{},
+	)
+
+	if err != nil {
+		return err
+	}
+
+	log.Println("✅ Database migrated successfully")
+	return nil
 }

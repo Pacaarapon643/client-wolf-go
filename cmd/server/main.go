@@ -8,12 +8,13 @@ import (
 )
 
 func main() {
-
+	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		panic(err)
+		log.Fatal("Failed to load config:", err)
 	}
 
+	// Initialize database
 	db, err := database.NewPostgres(cfg.DB)
 	if err != nil {
 		log.Fatal("Failed to connect database:", err)
@@ -25,9 +26,9 @@ func main() {
 		log.Fatal("Failed to migrate:", err)
 	}
 
-	server := server.NewServer(cfg, db)
-	if err := server.Run(); err != nil {
-		panic(err)
+	// Initialize and run server
+	srv := server.NewServer(cfg, db)
+	if err := srv.Run(); err != nil {
+		log.Fatal("Server error:", err)
 	}
-
 }
