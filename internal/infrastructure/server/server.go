@@ -9,8 +9,10 @@ import (
 	"syscall"
 	"time"
 	"werewolf-backend/internal"
-	"werewolf-backend/internal/config"
-	"werewolf-backend/internal/database"
+	"werewolf-backend/internal/adapter/http/middleware"
+	"werewolf-backend/internal/infrastructure/config"
+	"werewolf-backend/internal/infrastructure/database"
+	"werewolf-backend/internal/pkg/util"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -21,9 +23,11 @@ import (
 )
 
 type Server struct {
-	app *fiber.App
-	cfg *config.Config
-	db  *database.Database
+	app           *fiber.App
+	cfg           *config.Config
+	db            *database.Database
+	jwtService    *util.JWTService
+	jwtMiddleware *middleware.JWTMiddleware
 }
 
 func NewServer(cfg *config.Config, db *database.Database) *Server {
@@ -72,17 +76,28 @@ func NewServer(cfg *config.Config, db *database.Database) *Server {
 		MaxAge:           3600,
 	}))
 
+	// สร้าง JWT Service
+	jwtService, err := util.NewJWTService(cfg.JWT)
+	if err != nil {
+		log.Fatal("Failed to initialize JWT service:", err)
+	}
+
+	// สร้าง JWT Middleware
+	jwtMiddleware := middleware.NewJWTMiddleware(jwtService)
+
 	return &Server{
-		app: app,
-		cfg: cfg,
-		db:  db,
+		app:           app,
+		cfg:           cfg,
+		db:            db,
+		jwtService:    jwtService,
+		jwtMiddleware: jwtMiddleware,
 	}
 
 }
 
 func (s *Server) Run() error {
 	// Setup routes
-	internal.Setup(s.app, s.db)
+	internal.Setup(s.app, s.db, s.jwtMiddleware, s.jwtService)
 
 	// Handle graceful shutdown
 	return s.runWithGracefulShutdown()

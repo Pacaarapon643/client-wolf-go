@@ -2,9 +2,9 @@ package services
 
 import (
 	"context"
-	"werewolf-backend/internal/dto"
+	"werewolf-backend/internal/adapter/http/dto"
 	"werewolf-backend/internal/models"
-	"werewolf-backend/internal/util"
+	"werewolf-backend/internal/pkg/util"
 
 	"github.com/gofiber/fiber/v2"
 )

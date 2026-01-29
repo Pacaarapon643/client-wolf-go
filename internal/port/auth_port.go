@@ -2,7 +2,8 @@ package port
 
 import (
 	"context"
-	"werewolf-backend/internal/dto"
+
+	"werewolf-backend/internal/adapter/http/dto"
 	"werewolf-backend/internal/models"
 )
 

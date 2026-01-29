@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 	"werewolf-backend/internal/models"
-	"werewolf-backend/internal/util"
+	"werewolf-backend/internal/pkg/util"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5/pgconn"

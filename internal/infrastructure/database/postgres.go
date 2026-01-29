@@ -3,7 +3,7 @@ package database
 import (
 	"log"
 	"time"
-	"werewolf-backend/internal/config"
+	"werewolf-backend/internal/infrastructure/config"
 	"werewolf-backend/internal/models"
 
 	"gorm.io/driver/postgres"

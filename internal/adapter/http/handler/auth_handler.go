@@ -2,9 +2,11 @@ package handler
 
 import (
 	"errors"
-	"werewolf-backend/internal/appconst"
-	"werewolf-backend/internal/dto"
-	"werewolf-backend/internal/util"
+	"time"
+
+	"werewolf-backend/internal/adapter/http/dto"
+	"werewolf-backend/internal/pkg/appconst"
+	"werewolf-backend/internal/pkg/util"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -78,10 +80,46 @@ func (h Handler) Login(ctx *fiber.Ctx) error {
 		}
 	}
 
+	tokenPair, err := h.jwtService.GenerateTokenPair(
+		data.BaseModel.ID.String(),
+		data.UserName,
+		data.Email,
+		"staff",
+	)
+	if err != nil {
+		var detailedError *util.LocalizedError
+		if errors.As(err, &detailedError) {
+			return util.HandlerError(
+				ctx,
+				detailedError.Code,
+				detailedError.Err,
+				detailedError.Message,
+			)
+		} else {
+			return util.HandlerError(
+				ctx,
+				fiber.StatusInternalServerError,
+				detailedError.Err,
+				appconst.InternalServer,
+			)
+		}
+	}
+
+	util.CreateCookie(ctx, "auth", &tokenPair.AccessToken, time.Now().Add(time.Hour*24))
+
 	return util.HandlerResponse(
 		ctx,
 		fiber.StatusOK,
-		data,
+		tokenPair,
 		"login success",
+	)
+}
+
+func (h Handler) Test(ctx *fiber.Ctx) error {
+	return util.HandlerResponse(
+		ctx,
+		fiber.StatusOK,
+		nil,
+		"ควยยยย",
 	)
 }
