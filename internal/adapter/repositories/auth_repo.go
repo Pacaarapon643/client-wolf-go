@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"werewolf-backend/internal/models"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5/pgconn"
-	"gorm.io/gorm"
 )
 
 func (r *Repository) Register(ctx context.Context, user *models.User) error {
@@ -31,18 +29,23 @@ func (r *Repository) Register(ctx context.Context, user *models.User) error {
 }
 
 func (r *Repository) Login(ctx context.Context, email string) (*models.User, error) {
-
 	user := &models.User{}
-	err := r.db.WithContext(ctx).Where("email = ?", email).First(user).Error
+
+	err := r.db.WithContext(ctx).
+		Raw(`
+            UPDATE users 
+            SET is_online = true, updated_at = NOW() 
+            WHERE email = ? AND deleted_at IS NULL 
+            RETURNING *
+        `, email).
+		Scan(user).Error
+
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, &util.LocalizedError{
-				Code:    fiber.StatusBadRequest,
-				Err:     err.Error(),
-				Message: "ไม่พบข้อมูลนี้ในระบบกรุณาสมัครสมาชิก",
-			}
+		return nil, &util.LocalizedError{
+			Code:    fiber.StatusBadRequest,
+			Err:     err.Error(),
+			Message: "ไม่พบข้อมูลนี้ในระบบกรุณาสมัครสมาชิก",
 		}
-		return nil, err
 	}
 
 	return user, nil

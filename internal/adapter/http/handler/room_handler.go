@@ -2,65 +2,54 @@ package handler
 
 import (
 	"errors"
-	"time"
-
 	"werewolf-backend/internal/adapter/http/dto"
+	"werewolf-backend/internal/models"
 	"werewolf-backend/internal/pkg/appconst"
 	"werewolf-backend/internal/pkg/util"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-func (h Handler) Register(ctx *fiber.Ctx) error {
-	var req dto.RegisterRequest
+func (h Handler) CreateRoom(ctx *fiber.Ctx) error {
+	var req dto.CreateRoomRequest
 	if err := ctx.BodyParser(&req); err != nil {
 		return util.HandlerError(
 			ctx,
 			fiber.StatusBadRequest,
 			err.Error(),
-			appconst.ErrorBodyParser,
+			"Bad Request",
 		)
 	}
 
-	if errors := util.ValidateStruct(req); errors != nil {
-		return util.HandlerError(
-			ctx,
-			fiber.StatusBadRequest,
-			"",
-			errors[0]["message"],
-		)
+	obj := models.Room{
+		RoomName:    req.RoomName,
+		TotalPlayer: req.TotalPlayer,
+		CreateBy:    req.CreateBy,
 	}
 
-	err := h.s.Register(ctx.Context(), req)
+	err := h.s.CreateRoom(ctx.Context(), &obj)
 	if err != nil {
 		return util.HandlerError(
 			ctx,
 			fiber.StatusInternalServerError,
 			err.Error(),
-			"ไม่สามารถสมัครสมาชิกได้",
+			"Internal Server Error",
 		)
 	}
 
 	return util.HandlerResponse(
 		ctx,
 		fiber.StatusOK,
-		nil,
-		"register success",
+		obj,
+		"Success",
 	)
 }
 
-func (h Handler) Login(ctx *fiber.Ctx) error {
-	var req dto.LoginRequest
-	if err := ctx.BodyParser(&req); err != nil {
-		return util.HandlerError(
-			ctx,
-			fiber.StatusBadRequest,
-			err.Error(),
-			appconst.ErrorBodyParser,
-		)
-	}
+func (h Handler) GetRoom(ctx *fiber.Ctx) error {
 
-	data, err := h.s.Login(ctx.Context(), req)
+	var obj []models.Room
+
+	err := h.s.GetRoom(ctx.Context(), &obj)
 	if err != nil {
 		var detailedError *util.LocalizedError
 		if errors.As(err, &detailedError) {
@@ -80,12 +69,18 @@ func (h Handler) Login(ctx *fiber.Ctx) error {
 		}
 	}
 
-	tokenPair, err := h.jwtService.GenerateTokenPair(
-		data.BaseModel.ID.String(),
-		data.UserName,
-		data.Email,
-		"staff",
+	return util.HandlerResponse(
+		ctx,
+		fiber.StatusOK,
+		obj,
+		"Success",
 	)
+}
+
+func (h Handler) CountRoom(ctx *fiber.Ctx) error {
+
+	var count int64
+	err := h.s.CountRoom(ctx.Context(), &count)
 	if err != nil {
 		var detailedError *util.LocalizedError
 		if errors.As(err, &detailedError) {
@@ -105,21 +100,10 @@ func (h Handler) Login(ctx *fiber.Ctx) error {
 		}
 	}
 
-	util.CreateCookie(ctx, "auth", &tokenPair.AccessToken, time.Now().Add(time.Hour*24))
-
 	return util.HandlerResponse(
 		ctx,
 		fiber.StatusOK,
-		data,
-		"login success",
-	)
-}
-
-func (h Handler) Test(ctx *fiber.Ctx) error {
-	return util.HandlerResponse(
-		ctx,
-		fiber.StatusOK,
-		nil,
-		"ควยยยย",
+		count,
+		"Success",
 	)
 }
