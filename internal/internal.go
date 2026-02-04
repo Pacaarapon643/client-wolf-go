@@ -25,6 +25,8 @@ func SetupRoutes(app *fiber.App, h *handler.Handler, jwtMiddleware *middleware.J
 	v1 := api.Group("/v1")
 
 	router.AuthRoutes(v1, h, jwtMiddleware)
+	router.RoomRoutes(v1, h, jwtMiddleware)
+	router.UserRoutes(v1, h, jwtMiddleware)
 
 	app.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{

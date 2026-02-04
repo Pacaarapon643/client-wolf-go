@@ -48,6 +48,7 @@ func NewPostgres(cfg *config.DatabaseConfig) (*Database, error) {
 func (d *Database) AutoMigrate() error {
 	err := d.DB.AutoMigrate(
 		&models.User{},
+		&models.Room{},
 	)
 
 	if err != nil {
@@ -57,3 +58,4 @@ func (d *Database) AutoMigrate() error {
 	log.Println("✅ Database migrated successfully")
 	return nil
 }
+  
