@@ -280,7 +280,10 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 		}
 
 		var msgData Message
-		json.Unmarshal(msg, &msgData)
+		if err := json.Unmarshal(msg, &msgData); err != nil {
+			log.Printf("Failed to unmarshal game message: %v", err)
+			continue
+		}
 
 		log.Println("msgData: ", msgData)
 		if msgData.Type == "ready" {
