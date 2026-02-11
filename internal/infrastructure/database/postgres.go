@@ -16,7 +16,7 @@ func NewPostgres(cfg *config.DatabaseConfig) (*Database, error) {
 	var err error
 
 	gormCfg := &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(logger.Error),
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -49,6 +49,7 @@ func (d *Database) AutoMigrate() error {
 	err := d.DB.AutoMigrate(
 		&models.User{},
 		&models.Room{},
+		&models.RoomMember{},
 	)
 
 	if err != nil {

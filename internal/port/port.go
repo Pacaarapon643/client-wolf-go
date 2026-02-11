@@ -10,4 +10,5 @@ type Service interface {
 	AuthService
 	RoomService
 	UserService
+	GameService
 }

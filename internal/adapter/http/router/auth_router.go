@@ -5,6 +5,7 @@ import (
 	"werewolf-backend/internal/adapter/http/middleware"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/websocket/v2"
 )
 
 func AuthRoutes(v1 fiber.Router, h *handler.Handler, jwtMiddleware *middleware.JWTMiddleware) {
@@ -12,4 +13,5 @@ func AuthRoutes(v1 fiber.Router, h *handler.Handler, jwtMiddleware *middleware.J
 	auth.Post("/register", h.Register)
 	auth.Post("/login", h.Login)
 	auth.Post("/test", jwtMiddleware.MiddlewareAuth(), h.Test)
+	auth.Get("/ws/test", websocket.New(h.RoomWebSocket))
 }

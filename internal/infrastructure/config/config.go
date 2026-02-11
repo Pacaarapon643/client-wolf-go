@@ -10,6 +10,7 @@ type Config struct {
 	Server *ServerConfig
 	DB     *DatabaseConfig
 	JWT    *JWTConfig
+	Redis  *RedisConfig
 }
 
 func Load() (*Config, error) {
@@ -32,6 +33,7 @@ func Load() (*Config, error) {
 		Server: LoadServerConfig(),
 		DB:     LoadDatabaseConfig(),
 		JWT:    LoadJWTConfig(),
+		Redis:  LoadRedisConfig(),
 	}
 
 	return cfg, nil
