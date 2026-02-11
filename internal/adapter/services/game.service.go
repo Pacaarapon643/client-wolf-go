@@ -17,7 +17,9 @@ func (s Service) RoleDistribution(ctx context.Context, roomId string) error {
 	}
 
 	var roles []string
-	roles = []string{appconst.RoleWerewolf, appconst.RoleWerewolf, appconst.RoleSeer, appconst.RoleGuard, appconst.RoleVillager, appconst.RoleVillager}
+	if len(obj) == 6 {
+		roles = []string{appconst.RoleWerewolf, appconst.RoleWerewolf, appconst.RoleSeer, appconst.RoleGuard, appconst.RoleVillager, appconst.RoleVillager}
+	}
 
 	rand.Shuffle(len(roles), func(i, j int) {
 		roles[i], roles[j] = roles[j], roles[i]

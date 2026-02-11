@@ -89,7 +89,7 @@ func (j *JWTService) GenerateAccessToken(userID string, username, email, role st
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    "werewolf-backend",
-			Subject:   fmt.Sprintf("%s", userID),
+			Subject:   userID,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -109,7 +109,7 @@ func (j *JWTService) GenerateRefreshToken(userID string) (string, error) {
 		IssuedAt:  jwt.NewNumericDate(now),
 		NotBefore: jwt.NewNumericDate(now),
 		Issuer:    "werewolf-backend",
-		Subject:   fmt.Sprintf("%s", userID),
+		Subject:   userID,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signedToken, err := token.SignedString(j.privateKey)
@@ -178,6 +178,6 @@ func (j *JWTService) ValidateRefreshToken(tokenString string) (uint, error) {
 		return 0, fmt.Errorf("invalid refresh token claims")
 	}
 	var userID uint
-	fmt.Sscanf(claims.Subject, "%d", &userID)
+	_, _ = fmt.Sscanf(claims.Subject, "%d", &userID) // Ignore error (best-effort)
 	return userID, nil
 }
