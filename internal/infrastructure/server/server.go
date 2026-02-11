@@ -26,11 +26,12 @@ type Server struct {
 	app           *fiber.App
 	cfg           *config.Config
 	db            *database.Database
+	rdb           *database.RedisClient
 	jwtService    *util.JWTService
 	jwtMiddleware *middleware.JWTMiddleware
 }
 
-func NewServer(cfg *config.Config, db *database.Database) *Server {
+func NewServer(cfg *config.Config, db *database.Database, rdb *database.RedisClient) *Server {
 	app := fiber.New(fiber.Config{
 		AppName:               "Werewolf-Game",
 		ServerHeader:          "Werewolf-Game",
@@ -89,6 +90,7 @@ func NewServer(cfg *config.Config, db *database.Database) *Server {
 		app:           app,
 		cfg:           cfg,
 		db:            db,
+		rdb:           rdb,
 		jwtService:    jwtService,
 		jwtMiddleware: jwtMiddleware,
 	}
@@ -97,7 +99,7 @@ func NewServer(cfg *config.Config, db *database.Database) *Server {
 
 func (s *Server) Run() error {
 	// Setup routes
-	internal.Setup(s.app, s.db, s.jwtMiddleware, s.jwtService)
+	internal.Setup(s.app, s.db, s.rdb, s.jwtMiddleware, s.jwtService)
 
 	// Handle graceful shutdown
 	return s.runWithGracefulShutdown()
@@ -125,7 +127,7 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 
 func getAllowedOrigins(cfg *config.Config) string {
 	if cfg.IsDevelopment() {
-		return "http://localhost:5173,http://localhost:8080"
+		return "http://localhost:5173,http://localhost:8080 ,http://localhost:4173/"
 	}
 	// Production - เพิ่ม domain จริง
 	return "https://your-frontend-domain.com,https://your-app.vercel.app"

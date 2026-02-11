@@ -21,13 +21,21 @@ func main() {
 	}
 	defer db.Close()
 
+	// redis
+	rdb, err := database.NewRedis(cfg.Redis)
+	if err != nil {
+		log.Fatal("Failed to connect Redis:", err)
+	}
+	defer rdb.Close()
+	log.Println("✅ redis connected")
+
 	// Auto migrate
 	if err := db.AutoMigrate(); err != nil {
 		log.Fatal("Failed to migrate:", err)
 	}
 
 	// Initialize and run server
-	srv := server.NewServer(cfg, db)
+	srv := server.NewServer(cfg, db, rdb)
 	if err := srv.Run(); err != nil {
 		log.Fatal("Server error:", err)
 	}

@@ -13,9 +13,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func Setup(app *fiber.App, db *database.Database, jwtMiddleware *middleware.JWTMiddleware, jwtService *util.JWTService) {
+func Setup(app *fiber.App, db *database.Database, rdb *database.RedisClient, jwtMiddleware *middleware.JWTMiddleware, jwtService *util.JWTService) {
 	r := repositories.NewRepository(db.DB)
-	s := services.NewService(r)
+	s := services.NewService(r, rdb)
 	h := handler.NewHandler(s, jwtService)
 	SetupRoutes(app, h, jwtMiddleware)
 }
@@ -27,6 +27,8 @@ func SetupRoutes(app *fiber.App, h *handler.Handler, jwtMiddleware *middleware.J
 	router.AuthRoutes(v1, h, jwtMiddleware)
 	router.RoomRoutes(v1, h, jwtMiddleware)
 	router.UserRoutes(v1, h, jwtMiddleware)
+	router.GameRoutes(v1, h, jwtMiddleware)
+	
 
 	app.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
