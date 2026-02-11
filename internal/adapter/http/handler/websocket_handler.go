@@ -120,7 +120,10 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 	}
 
 	var joinMsg Message
-	json.Unmarshal(msgBytes, &joinMsg)
+	if err := json.Unmarshal(msgBytes, &joinMsg); err != nil {
+		log.Printf("Failed to unmarshal join message: %v", err)
+		return
+	}
 
 	room := Manager.JoinRoom(joinMsg.RoomID)
 	client := &Client{
@@ -172,7 +175,9 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 
 	// --- 4. ถ้าไม่ใช่ห้อง Lobby ให้จัดการ Logic พิเศษ ---
 	if client.RoomID != "lobby" {
-		h.s.JoinRoom(context.Background(), client.RoomID)
+		if err := h.s.JoinRoom(context.Background(), client.RoomID); err != nil {
+			log.Printf("Failed to join room: %v", err)
+		}
 
 		// บอกตัวเองให้โหลดข้อมูลห้องนั้นๆ
 		loadMsg, _ := json.Marshal(Message{Type: "load_room"})
@@ -212,7 +217,10 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 		}
 
 		var msgData Message
-		json.Unmarshal(msg, &msgData)
+		if err := json.Unmarshal(msg, &msgData); err != nil {
+			log.Printf("Failed to unmarshal message: %v", err)
+			continue
+		}
 
 		log.Println("msgData: ", msgData)
 		if msgData.Type == "ready" {
@@ -236,7 +244,10 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 	}
 
 	var joinMsg Message
-	json.Unmarshal(msgBytes, &joinMsg)
+	if err := json.Unmarshal(msgBytes, &joinMsg); err != nil {
+		log.Printf("Failed to unmarshal game join message: %v", err)
+		return
+	}
 
 	room := Manager.JoinRoom(joinMsg.RoomID)
 	client := &Client{
