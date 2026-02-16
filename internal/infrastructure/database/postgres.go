@@ -50,6 +50,7 @@ func (d *Database) AutoMigrate() error {
 		&models.User{},
 		&models.Room{},
 		&models.RoomMember{},
+		&models.Game{},
 	)
 
 	if err != nil {
@@ -59,4 +60,3 @@ func (d *Database) AutoMigrate() error {
 	log.Println("✅ Database migrated successfully")
 	return nil
 }
-  

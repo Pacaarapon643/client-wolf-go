@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gofiber/websocket/v2"
 )
@@ -12,31 +13,41 @@ import (
 type Message struct {
 	Type     string `json:"type"`
 	UserID   string `json:"user_id"`
+	GameId   string `json:"game_id"`
 	RoomID   string `json:"room_id"`
 	UserName string `json:"username"`
 	Content  string `json:"content"`
+}
+
+type MessageGame struct {
+	Type      string `json:"type"`
+	Sender    string `json:"sender"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
 }
 
 type Client struct {
 	Conn     *websocket.Conn
 	RoomID   string
 	UserID   string
+	GameId   string
 	UserName string
 	Send     chan []byte
 }
 
 type Room struct {
-	Id     string
-	Client map[string]*Client
-	mu     sync.RWMutex
+	Id            string
+	Client        map[string]*Client
+	mu            sync.RWMutex
+	Phase         string             // "night", "day", "vote"
+	RemainingTime int                // เวลาที่เหลือ
+	TimerCancel   context.CancelFunc // ใช้สำหรับสั่งหยุด Timer
+	IsGameStarted bool               // เช็คว่าเริ่มนับเวลาหรือยัง
 }
 
 type RoomManager struct {
 	Room map[string]*Room
 	mu   sync.RWMutex
-}
-
-type Lobby struct {
 }
 
 var Manager = &RoomManager{
@@ -69,6 +80,79 @@ func (r *Room) RemoveClient(client *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.Client, client.UserID)
+}
+
+func (r *Room) StartTimer(duration int, phase string) {
+	r.mu.Lock()
+	if r.TimerCancel != nil {
+		r.TimerCancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r.TimerCancel = cancel
+	r.RemainingTime = duration
+	r.Phase = phase
+	r.IsGameStarted = true
+	r.broadcastTimeSync()
+	r.mu.Unlock()
+
+	go func(ctx context.Context) {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				r.mu.Lock()
+				r.RemainingTime--
+				r.broadcastTimeSync()
+
+				if r.RemainingTime <= 0 {
+					r.mu.Unlock()
+					r.NextPhase() // เมื่อจบเวลา ไป Phase ถัดไป
+					return
+				}
+				r.mu.Unlock()
+
+			case <-ctx.Done():
+				log.Printf("Timer for phase %s stopped.", phase)
+				return
+			}
+		}
+	}(ctx)
+}
+
+func (r *Room) broadcastTimeSync() {
+
+	msg := map[string]interface{}{
+		"type":      "sync_time",
+		"phase":     r.Phase,
+		"remaining": r.RemainingTime,
+	}
+	payload, _ := json.Marshal(msg)
+
+	for _, client := range r.Client {
+		select {
+		case client.Send <- payload:
+		default:
+		}
+	}
+}
+
+func (r *Room) NextPhase() {
+	r.mu.RLock()
+	currentPhase := r.Phase
+	r.mu.RUnlock()
+
+	switch currentPhase {
+	case "ready_to_start":
+		r.StartTimer(30, "night")
+	case "night":
+		r.StartTimer(60, "day")
+	case "day":
+		r.StartTimer(30, "vote")
+	case "vote":
+		r.StartTimer(30, "night")
+	}
 }
 
 func (m *RoomManager) BroadcastToLobby(payload []byte) {
@@ -229,9 +313,26 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 				log.Println("Ready Room Error:", err)
 			}
 
-			loadMsg, _ := json.Marshal(Message{Type: "load_room"})
+			loadMsg, err := json.Marshal(Message{Type: "load_room"})
+			if err != nil {
+				log.Println("Marshal Error:", err)
+				return
+			}
 			Manager.BroadcastToRoom(loadMsg, client.RoomID)
 
+		} else if msgData.Type == "start_game" {
+			game_id, err := h.s.RoleDistribution(context.Background(), client.RoomID)
+			if err != nil {
+				log.Println("Role Distribution Error:", err)
+				return
+			}
+
+			loadMsg, err := json.Marshal(Message{Type: "start_game", Content: *game_id})
+			if err != nil {
+				log.Println("Marshal Error:", err)
+				return
+			}
+			Manager.BroadcastToRoom(loadMsg, client.RoomID)
 		}
 	}
 }
@@ -254,16 +355,31 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 		Conn:     ws,
 		RoomID:   joinMsg.RoomID,
 		UserID:   joinMsg.UserID,
+		GameId:   joinMsg.GameId,
 		UserName: joinMsg.UserName,
 		Send:     make(chan []byte, 256),
 	}
 
 	defer func() {
 		room.RemoveClient(client)
+		err = h.s.LeaveGame(context.Background(), client.GameId, client.UserID)
+		if err != nil {
+			log.Println("Leave Game Error:", err)
+		}
+		loadMsg, _ := json.Marshal(Message{Type: "load_game"})
+		Manager.BroadcastToRoom(loadMsg, client.RoomID)
 		ws.Close()
 	}()
 
 	room.AddClient(client)
+	err = h.s.JoinGame(context.Background(), client.GameId, client.UserID)
+	if err != nil {
+		log.Println("Join Game Error:", err)
+		return
+	}
+
+	loadMsg, _ := json.Marshal(Message{Type: "load_game"})
+	Manager.BroadcastToRoom(loadMsg, client.RoomID)
 
 	go func() {
 		for m := range client.Send {
@@ -272,6 +388,38 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 			}
 		}
 	}()
+
+	room.mu.RLock()
+	// เช็คตอนเผื่อหลุดออกจากเกม
+	if room.IsGameStarted {
+		syncMsg := map[string]interface{}{
+			"type":      "sync_time",
+			"phase":     room.Phase,
+			"remaining": room.RemainingTime,
+		}
+		payload, _ := json.Marshal(syncMsg)
+		client.Send <- payload
+	} else {
+		stargame, err := h.s.StartGame(context.Background(), client.RoomID)
+		if err != nil {
+			log.Println("Start Game Error:", err)
+			return
+		}
+		if stargame {
+			err := h.s.UpdateStartGame(context.Background(), client.RoomID)
+			if err != nil {
+				log.Println("Update Start Game Error:", err)
+				return
+			}
+			loadMsg, _ := json.Marshal(Message{Type: "start_game"})
+			Manager.BroadcastToRoom(loadMsg, client.RoomID)
+
+			loadMsg, _ = json.Marshal(Message{Type: "status_room"})
+	Manager.BroadcastToRoom(loadMsg, client.RoomID)
+		}
+
+	}
+	room.mu.RUnlock()
 
 	for {
 		_, msg, err := ws.ReadMessage()
@@ -285,16 +433,16 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 			continue
 		}
 
-		log.Println("msgData: ", msgData)
-		if msgData.Type == "ready" {
-			err := h.s.ReadyRoom(context.Background(), client.RoomID, client.UserID, msgData.Content)
-			if err != nil {
-				log.Println("Ready Room Error:", err)
-			}
-
-			loadMsg, _ := json.Marshal(Message{Type: "load_room"})
+		if msgData.Type == "chat" {
+			loadMsg, _ := json.Marshal(MessageGame{Type: "chat", Content: msgData.Content, Sender: client.UserName, Timestamp: time.Now().Format("15:04:05")})
 			Manager.BroadcastToRoom(loadMsg, client.RoomID)
 
 		}
+
+		// ใช้สำหรับเริ่มเกม
+		if msgData.Type == "start_game" {
+			room.StartTimer(5, "ready_to_start")
+		}
+
 	}
 }

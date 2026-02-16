@@ -24,7 +24,7 @@ func (h *Handler) CountUser(ctx *fiber.Ctx) error {
 			return util.HandlerError(
 				ctx,
 				fiber.StatusInternalServerError,
-				detailedError.Err,
+				err.Error(),
 				appconst.InternalServer,
 			)
 		}

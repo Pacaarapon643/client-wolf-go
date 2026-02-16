@@ -106,3 +106,22 @@ func (s Service) ReadyRoom(ctx context.Context, roomId string, userId string, ac
 
 	return s.r.ReadyRoom(ctx, roomId, userUUID, action)
 }
+
+func (s Service) StartGame(ctx context.Context, roomId string) (bool, error) {
+
+	joinRoom, maxRoom, err := s.r.UpdateJoinRoom(ctx, roomId)
+	if err != nil {
+		return false, err
+	}
+
+	if joinRoom != maxRoom {
+		return false, nil
+	}
+
+	return true, nil
+
+}
+
+func (s Service) UpdateStartGame(ctx context.Context, roomId string) error {
+	return s.r.UpdateStartGame(ctx, roomId)
+}
