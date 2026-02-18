@@ -25,8 +25,6 @@ func (r *Repository) GetGame(ctx context.Context, arr *[]dto.Game, game_id *stri
 }
 
 func (r *Repository) JoinGame(ctx context.Context, gameId *string, userId *string) error {
-	log.Println("gameId", *gameId)
-	log.Println("userId", *userId)
 	if gameId == nil || userId == nil {
 		return &util.LocalizedError{
 			Code:    fiber.StatusBadRequest,
