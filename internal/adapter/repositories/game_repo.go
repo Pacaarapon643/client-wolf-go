@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"context"
-	"log"
 	"werewolf-backend/internal/adapter/http/dto"
 	"werewolf-backend/internal/models"
 	"werewolf-backend/internal/pkg/util"
