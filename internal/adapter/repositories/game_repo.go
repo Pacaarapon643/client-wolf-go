@@ -45,3 +45,14 @@ func (r *Repository) LeaveGame(ctx context.Context, gameId *string, userId *stri
 	}
 	return r.db.WithContext(ctx).Table(models.Game{}.TableName()).Where("game_id = ? AND user_id = ?", *gameId, *userId).Update("is_join", false).Error
 }
+
+func (r *Repository) Dead(ctx context.Context, gameId *string, index *int) error {
+	if gameId == nil || index == nil {
+		return &util.LocalizedError{
+			Code:    fiber.StatusBadRequest,
+			Message: "game_id and index is required",
+		}
+	}
+
+	return r.db.WithContext(ctx).Table(models.Game{}.TableName()).Where("game_id = ? AND slot_index = ?", *gameId, *index).Update("is_dead", true).Error
+}

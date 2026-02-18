@@ -67,7 +67,17 @@ func (h Handler) GetGame(ctx *fiber.Ctx) error {
 		)
 	}
 
-	game, err := h.s.GetGame(ctx.Context(), gameId)
+	role := ctx.Query("role")
+	if role == "" {
+		return util.HandlerError(
+			ctx,
+			fiber.StatusBadRequest,
+			"",
+			"role is required",
+		)
+	}
+
+	game, err := h.s.GetGame(ctx.Context(), gameId, role)
 	if err != nil {
 		var detailedError *util.LocalizedError
 		if errors.As(err, &detailedError) {
