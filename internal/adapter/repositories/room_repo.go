@@ -181,3 +181,34 @@ func (r Repository) ReadyRoom(ctx context.Context, roomId string, userId uuid.UU
 	}
 	return nil
 }
+
+func (r Repository) UpdateJoinRoom(ctx context.Context, roomId string) (int, int, error) {
+	var room models.Room
+	result := r.db.WithContext(ctx).
+		Model(&models.Room{}).
+		Where("room_id = ?", roomId).
+		Update("join_room", gorm.Expr("join_room + ?", 1))
+
+	if result.Error != nil {
+		return 0, 0, result.Error
+	}
+
+	err := r.db.WithContext(ctx).
+		Select("join_room, total_player").
+		Where("room_id = ?", roomId).
+		First(&room).Error
+
+	return room.JoinRoom, room.TotalPlayer, err
+}
+
+func (r Repository) UpdateStartGame(ctx context.Context, roomId string) error {
+	err := r.db.WithContext(ctx).
+		Model(&models.Room{}).
+		Where("room_id = ?", roomId).
+		Update("room_status", "start").
+		Error
+	if err != nil {
+		return err
+	}
+	return nil
+}

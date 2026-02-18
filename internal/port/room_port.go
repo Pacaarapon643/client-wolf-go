@@ -18,7 +18,9 @@ type RoomRepo interface {
 	GetRoomMember(ctx context.Context, obj *[]dto.RoomMemberResponse, roomId string) error
 	LeaveRoom(ctx context.Context, roomId string, userId uuid.UUID) error
 	LeaveRoomJoin(ctx context.Context, roomId string) error
-	ReadyRoom(ctx context.Context, roomId string, userId uuid.UUID, action bool) error 
+	ReadyRoom(ctx context.Context, roomId string, userId uuid.UUID, action bool) error
+	UpdateJoinRoom(ctx context.Context, roomId string) (int, int, error)
+	UpdateStartGame(ctx context.Context, roomId string) error
 }
 
 type RoomService interface {
@@ -31,5 +33,8 @@ type RoomService interface {
 	GetRoomMember(ctx context.Context, obj *[]dto.RoomMemberResponse, query dto.QueryRoomMember) error
 	LeaveRoom(ctx context.Context, roomId string, userId string) error
 	LeaveRoomJoin(ctx context.Context, roomId string) error
-	ReadyRoom(ctx context.Context, roomId string, userId string, actionText string) error 
+	ReadyRoom(ctx context.Context, roomId string, userId string, actionText string) error
+	StartGame(ctx context.Context, roomId string) (bool, error)
+	UpdateStartGame(ctx context.Context, roomId string) error
 }
+

@@ -9,6 +9,7 @@ type Room struct {
 	CreateBy           string `json:"create_by"`
 	TotalPlayer        int    `json:"total_player"`
 	TotalPlayerCurrent int    `json:"total_player_current"`
+	JoinRoom           int    `json:"join_room"`
 }
 
 func (Room) TableName() string {

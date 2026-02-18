@@ -4,6 +4,7 @@ type Repository interface {
 	AuthRepo
 	RoomRepo
 	UserRepo
+	GameRepo
 }
 
 type Service interface {
