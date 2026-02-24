@@ -1,0 +1,26 @@
+# Version Control
+.git
+.gitignore
+
+# Environment Variables & Secrets (สำคัญมาก ห้ามหลุดเข้าไปใน Image)
+.env*
+*.pem
+*.key
+
+# Build Artifacts
+bin/
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+main
+
+# Dependencies (เราจะ download ใหม่ใน build stage เพื่อความชัวร์)
+vendor/
+
+# IDE/Editor Directories
+.vscode/
+.idea/
+.gemini/

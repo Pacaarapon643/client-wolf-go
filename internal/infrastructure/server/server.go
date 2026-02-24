@@ -127,7 +127,7 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 
 func getAllowedOrigins(cfg *config.Config) string {
 	if cfg.IsDevelopment() {
-		return "http://localhost:5173,http://localhost:8080 ,http://localhost:4173/"
+		return "http://localhost:5173,http://localhost:8080,http://localhost:4173,http://localhost:80,http://localhost"
 	}
 	// Production - เพิ่ม domain จริง
 	return "https://your-frontend-domain.com,https://your-app.vercel.app"
@@ -135,7 +135,8 @@ func getAllowedOrigins(cfg *config.Config) string {
 
 func (s *Server) runWithGracefulShutdown() error {
 	// Start server in goroutine
-	addr := fmt.Sprintf("%s:%s", s.cfg.Server.Address, s.cfg.Server.Port)
+	// Cloud Run ต้องการให้ Bind เข้า 0.0.0.0 เท่านั้น
+	addr := fmt.Sprintf("0.0.0.0:%s", s.cfg.Server.Port)
 
 	go func() {
 		log.Printf("🚀 Server starting on %s", addr)

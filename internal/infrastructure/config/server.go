@@ -18,9 +18,14 @@ type ServerConfig struct {
 }
 
 func LoadServerConfig() *ServerConfig {
+	port := viper.GetString("PORT")
+	if port == "" {
+		port = "8080" // Default port if not specified
+	}
+
 	serverConfig := ServerConfig{
 		Address:         viper.GetString("ADDRESS"),
-		Port:            viper.GetString("PORT"),
+		Port:            port,
 		Environment:     viper.GetString("ENVIRONMENT"),
 		ReadTimeout:     viper.GetDuration("SERVER_READ_TIMEOUT"),
 		WriteTimeout:    viper.GetDuration("SERVER_WRITE_TIMEOUT"),
