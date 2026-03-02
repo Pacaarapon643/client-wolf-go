@@ -147,18 +147,52 @@ func (r Repository) GetRoomMember(ctx context.Context, obj *[]dto.RoomMemberResp
 }
 
 func (r Repository) LeaveRoom(ctx context.Context, roomId string, userId uuid.UUID) error {
-	err := r.db.WithContext(ctx).
-		Model(&models.RoomMember{}).
-		Where("room_id = ? AND user_id = ?", roomId, userId).
-		Update("is_left", true).
-		Error
-	if err != nil {
-		return err
-	}
-	return nil
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1. ตรวจสอบว่าคนที่จะออกเป็น Host หรือไม่
+		var member models.RoomMember
+		err := tx.Where("room_id = ? AND user_id = ?", roomId, userId).First(&member).Error
+		if err != nil {
+			return err
+		}
+
+		wasHost := member.IsHost
+
+		// 2. Mark ว่าออกห้องแล้ว
+		err = tx.Model(&models.RoomMember{}).
+			Where("room_id = ? AND user_id = ?", roomId, userId).
+			Update("is_left", true).
+			Error
+		if err != nil {
+			return err
+		}
+
+		// 3. ถ้าคนออกเป็น Host ให้หา Host คนใหม่
+		if wasHost {
+			var nextHost models.RoomMember
+			// หาคนถัดไปที่ยังอยู่ในห้อง (เรียงตาม slot_index)
+			err = tx.Where("room_id = ? AND is_left = ?", roomId, false).
+				Order("slot_index ASC").
+				First(&nextHost).Error
+
+			if err == nil {
+				// ย้ายตำแหน่ง Host ให้คนถัดไป
+				err = tx.Model(&models.RoomMember{}).
+					Where("id = ?", nextHost.ID).
+					Update("is_host", true).
+					Error
+				if err != nil {
+					return err
+				}
+			}
+			// ถ้า error gorm.ErrRecordNotFound แสดงว่าไม่มีใครเหลือในห้องแล้ว ไม่ต้องทำอะไร
+		}
+
+		return nil
+	})
 }
 
 func (r Repository) LeaveRoomJoin(ctx context.Context, roomId string) error {
+	// ลดจำนวนผู้เล่นลง 1
 	err := r.db.WithContext(ctx).
 		Model(&models.Room{}).
 		Where("room_id = ?", roomId).
@@ -167,7 +201,15 @@ func (r Repository) LeaveRoomJoin(ctx context.Context, roomId string) error {
 	if err != nil {
 		return err
 	}
-	return nil
+
+	// ถ้าคนออกจนหมด (เหลือ 0) ให้ปิดห้องถาวร (is_end = true)
+	err = r.db.WithContext(ctx).
+		Model(&models.Room{}).
+		Where("room_id = ? AND total_player_current <= ?", roomId, 0).
+		Update("is_end", true).
+		Error
+
+	return err
 }
 
 func (r Repository) ReadyRoom(ctx context.Context, roomId string, userId uuid.UUID, action bool) error {

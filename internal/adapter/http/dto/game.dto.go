@@ -29,11 +29,35 @@ type GameResponse struct {
 
 type Vote struct {
 	UserID string `json:"user_id"`
-	Vote   *int    `json:"vote"`
+	Vote   *int   `json:"vote"`
 	Role   string `json:"role"`
 }
 
 type SummaryVote struct {
 	Index int `json:"index"`
 	Count int `json:"count"`
+}
+
+type GameEvent struct {
+	Type       string `json:"type"`
+	Message    string `json:"message"`
+	EventType  string `json:"event_type"` // "death", "saved", "night", "execute", "info"
+	NightCount int    `json:"night_count"`
+}
+
+type WinResult struct {
+	Winner  string `json:"winner"` // "werewolf", "villager", ""
+	Message string `json:"message"`
+}
+
+type AliveCount struct {
+	Werewolf    int `json:"werewolf"`
+	NonWerewolf int `json:"non_werewolf"`
+}
+
+type SummaryResult struct {
+	Result   string `json:"result"` // "dead", "saved", "tie"
+	Message  string `json:"message"`
+	DeadName string `json:"dead_name"`
+	DeadSlot int    `json:"dead_slot"`
 }

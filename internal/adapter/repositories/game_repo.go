@@ -53,3 +53,42 @@ func (r *Repository) Dead(ctx context.Context, gameId *string, index *int) error
 
 	return r.db.WithContext(ctx).Table(models.Game{}.TableName()).Where("game_id = ? AND slot_index = ?", *gameId, *index).Update("is_dead", true).Error
 }
+
+func (r *Repository) CountAlive(ctx context.Context, gameId string) (int, int, error) {
+	var werewolfCount int64
+	var nonWerewolfCount int64
+
+	err := r.db.WithContext(ctx).Table(models.Game{}.TableName()).
+		Where("game_id = ? AND is_dead = ? AND role = ?", gameId, false, "werewolf").
+		Count(&werewolfCount).Error
+	if err != nil {
+		return 0, 0, err
+	}
+
+	err = r.db.WithContext(ctx).Table(models.Game{}.TableName()).
+		Where("game_id = ? AND is_dead = ? AND role != ?", gameId, false, "werewolf").
+		Count(&nonWerewolfCount).Error
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return int(werewolfCount), int(nonWerewolfCount), nil
+}
+
+func (r *Repository) GetPlayerBySlot(ctx context.Context, gameId string, slotIndex int) (*models.Game, error) {
+	var game models.Game
+	err := r.db.WithContext(ctx).Where("game_id = ? AND slot_index = ?", gameId, slotIndex).First(&game).Error
+	if err != nil {
+		return nil, err
+	}
+	return &game, nil
+}
+
+func (r *Repository) GetPlayerRole(ctx context.Context, gameId string, userId string) (string, error) {
+	var game models.Game
+	err := r.db.WithContext(ctx).Where("game_id = ? AND user_id = ?", gameId, userId).First(&game).Error
+	if err != nil {
+		return "", err
+	}
+	return game.Role, nil
+}

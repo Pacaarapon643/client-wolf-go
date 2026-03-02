@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strconv"
 	"sync"
 	"time"
+
+	"werewolf-backend/internal/adapter/http/dto"
+	"werewolf-backend/internal/port"
 
 	"github.com/gofiber/websocket/v2"
 )
@@ -32,6 +36,9 @@ type Client struct {
 	UserID   string
 	GameId   string
 	UserName string
+	Role     string
+	IsDead   bool
+	SeerUsed bool // ตรวจแล้วในคืนนี้หรือยัง
 	Send     chan []byte
 }
 
@@ -39,10 +46,13 @@ type Room struct {
 	Id            string
 	Client        map[string]*Client
 	mu            sync.RWMutex
-	Phase         string             // "night", "day", "vote"
-	RemainingTime int                // เวลาที่เหลือ
-	TimerCancel   context.CancelFunc // ใช้สำหรับสั่งหยุด Timer
-	IsGameStarted bool               // เช็คว่าเริ่มนับเวลาหรือยัง
+	Phase         string
+	RemainingTime int
+	TimerCancel   context.CancelFunc
+	IsGameStarted bool
+	NightCount    int
+	GameId        string
+	service       port.Service // เก็บ service ref เพื่อเรียก SummaryVote ตรงจาก server
 }
 
 type RoomManager struct {
@@ -108,7 +118,7 @@ func (r *Room) StartTimer(duration int, phase string, roomId string) {
 
 				if r.RemainingTime <= 0 {
 					r.mu.Unlock()
-					r.NextPhase(roomId) // เมื่อจบเวลา ไป Phase ถัดไป
+					r.NextPhase(roomId)
 					return
 				}
 				r.mu.Unlock()
@@ -122,7 +132,6 @@ func (r *Room) StartTimer(duration int, phase string, roomId string) {
 }
 
 func (r *Room) broadcastTimeSync() {
-
 	msg := map[string]interface{}{
 		"type":      "sync_time",
 		"phase":     r.Phase,
@@ -138,42 +147,233 @@ func (r *Room) broadcastTimeSync() {
 	}
 }
 
+// NextPhase — ทำ summary ฝั่ง server เลย ไม่ต้อง broadcast กลับไปให้ client
 func (r *Room) NextPhase(roomId string) {
 	r.mu.RLock()
 	currentPhase := r.Phase
+	gameId := r.GameId
 	r.mu.RUnlock()
 
 	switch currentPhase {
 	case "ready_to_start":
+		r.mu.Lock()
+		r.NightCount++
+		for _, c := range r.Client {
+			c.SeerUsed = false
+		}
+		r.mu.Unlock()
+		r.BroadcastGameEvent("night", "เข้าสู่คืนที่ "+strconv.Itoa(r.NightCount), r.NightCount)
 		r.StartTimer(30, "night", roomId)
+
 	case "night":
-		loadMsg, _ := json.Marshal(Message{Type: "summary"})
-		Manager.BroadcastToRoom(loadMsg, roomId)
+		// สรุปผลคืน — เรียกจาก server โดยตรง (ไม่ผ่าน client)
+		if r.service != nil && gameId != "" {
+			r.doSummary(gameId, "night", roomId)
+		}
 		r.StartTimer(60, "day", roomId)
+
 	case "day":
 		r.StartTimer(30, "vote", roomId)
+
 	case "vote":
+		// สรุปผลโหวต — เรียกจาก server โดยตรง
+		if r.service != nil && gameId != "" {
+			r.doSummary(gameId, "vote", roomId)
+		}
+
+		// เริ่มคืนใหม่
+		r.mu.Lock()
+		r.NightCount++
+		for _, c := range r.Client {
+			c.SeerUsed = false
+		}
+		r.mu.Unlock()
+		r.BroadcastGameEvent("night", "เข้าสู่คืนที่ "+strconv.Itoa(r.NightCount), r.NightCount)
 		r.StartTimer(30, "night", roomId)
 	}
 }
 
-func (m *RoomManager) BroadcastToLobby(payload []byte) {
-	// 1. หาห้องที่ชื่อว่า "lobby" ใน map ของเรา
-	lobby, ok := m.Room["lobby"]
-	if !ok {
-		return // ถ้าไม่มีใครอยู่หน้า lobby เลย ก็ไม่ต้องส่ง
+// doSummary — ทำ summary ครั้งเดียวจากฝั่ง server
+func (r *Room) doSummary(gameId string, phase string, roomId string) {
+	ctx := context.Background()
+
+	summaryResult, err := r.service.SummaryVote(ctx, gameId, phase)
+	if err != nil {
+		log.Println("Summary Error:", err)
+		return
 	}
 
-	lobby.mu.RLock() // ล็อคไว้กันคนเข้า/ออกตอนกำลังวนลูป
+	// Broadcast event ผลลัพธ์
+	if summaryResult != nil {
+		r.BroadcastGameEvent(summaryResult.Result, summaryResult.Message, r.NightCount)
+	}
+
+	// ถ้ามีคนตาย mark client ว่าตาย
+	if summaryResult != nil && summaryResult.Result == "dead" {
+		r.markClientDead(summaryResult.DeadSlot, gameId)
+	}
+
+	// Reload game player data
+	loadMsg, _ := json.Marshal(Message{Type: "load_game"})
+	Manager.BroadcastToRoom(loadMsg, roomId)
+
+	// Reset votes
+	if err := r.service.ResetVotes(ctx, gameId); err != nil {
+		log.Println("Reset Votes Error:", err)
+	}
+
+	// Check win condition
+	winResult, err := r.service.CheckWinCondition(ctx, gameId)
+	if err != nil {
+		log.Println("Check Win Error:", err)
+		return
+	}
+	if winResult != nil {
+		winMsg := map[string]interface{}{
+			"type":    "game_over",
+			"winner":  winResult.Winner,
+			"message": winResult.Message,
+		}
+		payload, _ := json.Marshal(winMsg)
+		Manager.BroadcastToRoom(payload, roomId)
+
+		// หยุด timer + reset Room state ทั้งหมด
+		r.mu.Lock()
+		if r.TimerCancel != nil {
+			r.TimerCancel()
+		}
+		r.IsGameStarted = false
+		r.NightCount = 0
+		r.Phase = ""
+		r.GameId = ""
+		// reset client state
+		for _, c := range r.Client {
+			c.IsDead = false
+			c.SeerUsed = false
+		}
+		r.mu.Unlock()
+	}
+}
+
+// markClientDead — หา user_id ของ slot ที่ตาย แล้ว set Client.IsDead = true
+func (r *Room) markClientDead(deadSlot int, gameId string) {
+	// หา player data ทั้งหมดจาก GetGame
+	result, err := r.service.GetGame(context.Background(), gameId, "")
+	if err != nil {
+		log.Println("markClientDead: GetGame error:", err)
+		return
+	}
+
+	// หา user_id ของ slot ที่ตาย
+	deadUserId := ""
+	if players, ok := result.([]dto.GameResponse); ok {
+		for _, p := range players {
+			if p.SlotIndex == deadSlot {
+				deadUserId = p.UserId
+				break
+			}
+		}
+	}
+
+	if deadUserId == "" {
+		log.Printf("markClientDead: could not find userId for slot %d", deadSlot)
+		return
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// set IsDead = true สำหรับ client ที่ตาย
+	for _, client := range r.Client {
+		if client.UserID == deadUserId {
+			client.IsDead = true
+			log.Printf("[GAME] Marked client dead: User=%s Slot=%d", client.UserID, deadSlot)
+			break
+		}
+	}
+
+	// ส่ง death notification ให้ทุกคนรู้ว่า slot ไหนตาย
+	deathMsg := map[string]interface{}{
+		"type":      "player_died",
+		"dead_slot": deadSlot,
+	}
+	payload, _ := json.Marshal(deathMsg)
+	for _, client := range r.Client {
+		select {
+		case client.Send <- payload:
+		default:
+		}
+	}
+}
+
+// BroadcastGameEvent ส่ง event log ไปให้ทุกคนในห้อง
+func (r *Room) BroadcastGameEvent(eventType string, message string, nightCount int) {
+	msg := map[string]interface{}{
+		"type":        "game_event",
+		"event_type":  eventType,
+		"message":     message,
+		"night_count": nightCount,
+	}
+	payload, _ := json.Marshal(msg)
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, client := range r.Client {
+		select {
+		case client.Send <- payload:
+		default:
+		}
+	}
+}
+
+// BroadcastToWerewolves ส่ง message ให้เฉพาะหมาป่า
+func (r *Room) BroadcastToWerewolves(payload []byte) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, client := range r.Client {
+		if client.Role == "werewolf" {
+			select {
+			case client.Send <- payload:
+			default:
+			}
+		}
+	}
+}
+
+// BroadcastToDeadPlayers ส่ง message ให้เฉพาะคนตาย
+func (r *Room) BroadcastToDeadPlayers(payload []byte) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, client := range r.Client {
+		if client.IsDead {
+			select {
+			case client.Send <- payload:
+			default:
+			}
+		}
+	}
+}
+
+func sendToClient(client *Client, payload []byte) {
+	select {
+	case client.Send <- payload:
+	default:
+	}
+}
+
+func (m *RoomManager) BroadcastToLobby(payload []byte) {
+	lobby, ok := m.Room["lobby"]
+	if !ok {
+		return
+	}
+
+	lobby.mu.RLock()
 	defer lobby.mu.RUnlock()
 
-	// 2. วนลูปส่งหาทุกคนที่มีชื่ออยู่ในห้อง lobby
 	for _, client := range lobby.Client {
 		select {
 		case client.Send <- payload:
-			// ส่งสำเร็จ ข้อมูลจะไหลเข้า Goroutine Writer ของคนนั้นๆ
 		default:
-			// ถ้าคนนั้นเน็ตช้าจนท่อเต็ม (256) ให้ข้ามไป ไม่รอ (Non-blocking)
 		}
 	}
 }
@@ -196,10 +396,6 @@ func (m *RoomManager) BroadcastToRoom(payload []byte, roomId string) {
 }
 
 func (h Handler) RoomWebSocket(ws *websocket.Conn) {
-	// --- 1. เตรียมล้างข้อมูลตอนจบแน่นอน ---
-	// (ย้าย RemoveClient และ NotifyLobby มาไว้ที่นี่)
-
-	// --- 2. รับ Message แรกเพื่อ Join Room ---
 	_, msgBytes, err := ws.ReadMessage()
 	if err != nil {
 		return
@@ -217,7 +413,6 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 		UserName: joinMsg.UserName, Send: make(chan []byte, 256),
 	}
 
-	// --- 3. การจัดการ Cleanup (ย้ายมาวางตรงนี้หลังจากมีตัวแปร client) ---
 	defer func() {
 		room.RemoveClient(client)
 		if client.RoomID != "lobby" {
@@ -225,13 +420,11 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 			err = h.s.LeaveRoom(context.Background(), client.RoomID, client.UserID)
 			if err != nil {
 				log.Println("Leave Room Error:", err)
-
 			}
 
 			err = h.s.LeaveRoomJoin(context.Background(), client.RoomID)
 			if err != nil {
 				log.Println("Leave Room Join Error:", err)
-
 			}
 
 			msgLoadLobby := Message{
@@ -252,24 +445,20 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 			log.Println("โหลด room")
 			loadMsg, _ := json.Marshal(Message{Type: "load_room"})
 			Manager.BroadcastToRoom(loadMsg, client.RoomID)
-
 		}
 		ws.Close()
 	}()
 
 	room.AddClient(client)
 
-	// --- 4. ถ้าไม่ใช่ห้อง Lobby ให้จัดการ Logic พิเศษ ---
 	if client.RoomID != "lobby" {
 		if err := h.s.JoinRoom(context.Background(), client.RoomID); err != nil {
 			log.Printf("Failed to join room: %v", err)
 		}
 
-		// บอกตัวเองให้โหลดข้อมูลห้องนั้นๆ
 		loadMsg, _ := json.Marshal(Message{Type: "load_room"})
 		Manager.BroadcastToRoom(loadMsg, client.RoomID)
 
-		// **จุดสำคัญ**: บอก "คนอื่น" ใน Lobby ว่าห้องนี้มีคนเพิ่มแล้ว
 		msgLoadLobby := Message{
 			Type:     "lobby",
 			UserID:   client.UserID,
@@ -286,7 +475,6 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 		Manager.BroadcastToLobby(payload)
 	}
 
-	// --- 5. ตัวส่งข้อมูล (Writer Loop) ---
 	go func() {
 		for m := range client.Send {
 			if err := ws.WriteMessage(websocket.TextMessage, m); err != nil {
@@ -295,11 +483,10 @@ func (h Handler) RoomWebSocket(ws *websocket.Conn) {
 		}
 	}()
 
-	// --- 6. ตัวรับข้อมูล (Reader Loop) ค้างไว้จนกว่าจะปิดการเชื่อมต่อ ---
 	for {
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
-			break // หลุด Loop นี้จะไปทำ defer ข้างบน
+			break
 		}
 
 		var msgData Message
@@ -380,6 +567,20 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 		return
 	}
 
+	// ดึง role ของผู้เล่นนี้มาเก็บไว้ใน Client
+	roleResult, err := h.s.GetRoleGame(context.Background(), client.RoomID, client.UserID)
+	if err == nil {
+		if roleStr, ok := roleResult.(string); ok {
+			client.Role = roleStr
+		}
+	}
+
+	// เก็บ gameId + service ไว้ใน Room เพื่อให้ NextPhase เรียก SummaryVote ได้
+	room.mu.Lock()
+	room.GameId = client.GameId
+	room.service = h.s
+	room.mu.Unlock()
+
 	loadMsg, _ := json.Marshal(Message{Type: "load_game"})
 	Manager.BroadcastToRoom(loadMsg, client.RoomID)
 
@@ -392,7 +593,6 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 	}()
 
 	room.mu.RLock()
-	// เช็คตอนเผื่อหลุดออกจากเกม
 	if room.IsGameStarted {
 		syncMsg := map[string]interface{}{
 			"type":      "sync_time",
@@ -405,12 +605,14 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 		stargame, err := h.s.StartGame(context.Background(), client.RoomID)
 		if err != nil {
 			log.Println("Start Game Error:", err)
+			room.mu.RUnlock()
 			return
 		}
 		if stargame {
 			err := h.s.UpdateStartGame(context.Background(), client.RoomID)
 			if err != nil {
 				log.Println("Update Start Game Error:", err)
+				room.mu.RUnlock()
 				return
 			}
 			loadMsg, _ := json.Marshal(Message{Type: "start_game"})
@@ -419,7 +621,6 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 			loadMsg, _ = json.Marshal(Message{Type: "status_room"})
 			Manager.BroadcastToRoom(loadMsg, client.RoomID)
 		}
-
 	}
 	room.mu.RUnlock()
 
@@ -437,35 +638,84 @@ func (h Handler) GameWebSocket(ws *websocket.Conn) {
 
 		log.Println("msgData: ", msgData)
 
+		// แชทปกติ (เฉพาะคนที่ยังมีชีวิต)
 		if msgData.Type == "chat" {
-			loadMsg, _ := json.Marshal(MessageGame{Type: "chat", Content: msgData.Content, Sender: client.UserName, Timestamp: time.Now().Format("15:04:05")})
-			Manager.BroadcastToRoom(loadMsg, client.RoomID)
-
+			chatMsg, _ := json.Marshal(MessageGame{Type: "chat", Content: msgData.Content, Sender: client.UserName, Timestamp: time.Now().Format("15:04:05")})
+			Manager.BroadcastToRoom(chatMsg, client.RoomID)
 		}
 
-		// ใช้สำหรับเริ่มเกม
+		// แชทคนตาย (เห็นเฉพาะคนตาย)
+		if msgData.Type == "dead_chat" {
+			chatMsg, _ := json.Marshal(MessageGame{Type: "dead_chat", Content: msgData.Content, Sender: client.UserName, Timestamp: time.Now().Format("15:04:05")})
+			room.BroadcastToDeadPlayers(chatMsg)
+		}
+
+		// แชทหมาป่า (เห็นเฉพาะหมาป่า)
+		if msgData.Type == "wolf_chat" {
+			chatMsg, _ := json.Marshal(MessageGame{Type: "wolf_chat", Content: msgData.Content, Sender: client.UserName, Timestamp: time.Now().Format("15:04:05")})
+			room.BroadcastToWerewolves(chatMsg)
+		}
+
+		// ใช้สำหรับเริ่มเกม (guard: ให้เริ่มได้ครั้งเดียวเท่านั้น)
 		if msgData.Type == "start_game" {
-			room.StartTimer(5, "ready_to_start", client.RoomID)
+			room.mu.Lock()
+			alreadyStarted := room.IsGameStarted
+			room.mu.Unlock()
+			if !alreadyStarted {
+				log.Println("[GAME] Starting timer for room:", client.RoomID)
+				room.StartTimer(5, "ready_to_start", client.RoomID)
+			} else {
+				log.Println("[GAME] Timer already started, ignoring duplicate start_game")
+			}
 		}
 
+		// โหวต — คลิกคนเลยจะส่ง vote ทันที
 		if msgData.Type == "vote" {
+			log.Printf("[VOTE] User=%s, GameId=%s, Target=%s", client.UserID, client.GameId, msgData.Content)
 			_, err := h.s.Vote(context.Background(), client.GameId, client.UserID, msgData.Content, "")
 			if err != nil {
 				log.Println("Vote Error:", err)
-				return
 			}
 		}
 
-		if msgData.Type == "summary" {
-			_, err := h.s.SummaryVote(context.Background(), client.GameId, msgData.Content)
+		// ยกเลิก/ข้ามโหวต
+		if msgData.Type == "cancel_vote" {
+			err := h.s.CancelVote(context.Background(), client.GameId, client.UserID)
 			if err != nil {
-				log.Println("Summary Error:", err)
-				return
+				log.Println("Cancel Vote Error:", err)
 			}
-
-			loadMsg, _ := json.Marshal(Message{Type: "load_game"})
-			Manager.BroadcastToRoom(loadMsg, client.RoomID)
 		}
 
+		// Seer ตรวจสอบ role (ใช้ได้ครั้งเดียวต่อคืน)
+		if msgData.Type == "seer_check" {
+			if client.SeerUsed {
+				log.Println("[GAME] Seer already used this night, ignoring")
+				continue
+			}
+			result, err := h.s.SeerCheck(context.Background(), client.GameId, msgData.Content)
+			if err != nil {
+				log.Println("Seer Check Error:", err)
+				continue
+			}
+			client.SeerUsed = true
+			seerMsg := map[string]interface{}{
+				"type":    "seer_result",
+				"content": result,
+				"target":  msgData.Content,
+			}
+			payload, _ := json.Marshal(seerMsg)
+			sendToClient(client, payload)
+		}
+
+		// Guard ปกป้อง
+		if msgData.Type == "guard_protect" {
+			_, err := h.s.Vote(context.Background(), client.GameId, client.UserID, msgData.Content, "guard")
+			if err != nil {
+				log.Println("Guard Protect Error:", err)
+			}
+		}
+
+		// NOTE: "summary" type is no longer handled here.
+		// Summary is called directly from NextPhase on the server side to prevent duplicates.
 	}
 }
